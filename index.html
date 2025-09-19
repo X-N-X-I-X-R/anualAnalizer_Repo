@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="he">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IBKR Data Explorer</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f7f9fc;
+    color: #333;
+  }
+  header {
+    background: linear-gradient(45deg, #007ACC, #4FACFE);
+    color: white;
+    padding: 20px;
+    text-align: center;
+  }
+  h1 {
+    margin: 0;
+    font-size: 2em;
+  }
+  .container {
+    max-width: 960px;
+    margin: 20px auto;
+    padding: 20px;
+    background: white;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    border-radius: 8px;
+  }
+  label {
+    display: block;
+    margin: 10px 0 5px;
+    font-weight: bold;
+  }
+  select {
+    padding: 5px;
+    margin-right: 10px;
+  }
+  #subcategories-container label {
+    display: inline-block;
+    margin-right: 15px;
+    margin-top: 5px;
+  }
+  button {
+    display: inline-block;
+    margin-top: 10px;
+    padding: 8px 16px;
+    background: #007ACC;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  button:hover {
+    background: #005FA8;
+  }
+  .chart-container {
+    position: relative;
+    height: 420px;
+    margin-top: 20px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>ברוכים הבאים ל־IBKR Data Explorer</h1>
+</header>
+
+<div class="container">
+  <p>בחרו קטגוריה ותת־קטגוריות כדי לצפות בנתונים עבור מניית IBKR.</p>
+  
+  <label for="category-select">בחר קטגוריה:</label>
+  <select id="category-select"></select>
+  
+  <div id="subcategories-container"></div>
+  
+  <label for="chart-type-select">בחר סוג גרף:</label>
+  <select id="chart-type-select">
+    <option value="line">קו</option>
+    <option value="bar">עמודות</option>
+    <option value="radar">רדאר</option>
+  </select>
+  
+  <button id="plot-btn">הצג גרף</button>
+  
+  <div class="chart-container">
+    <canvas id="dataChart"></canvas>
+  </div>
+</div>
+
+<!-- Chart.js from CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  // נתונים מוטמעים (ניתן לטעון מקובץ JSON נפרד אם מריצים על שרת)
+  const data = /* Paste the contents of ibkr_data.json here, e.g.:
+  {
+    "income_statement": { ... },
+    "balance_sheet": { ... },
+    "cash_flow": { ... }
+  }
+  */;
+
+  // אלמנטים מה־DOM
+  const categorySelect = document.getElementById('category-select');
+  const subcategoriesContainer = document.getElementById('subcategories-container');
+  const chartTypeSelect = document.getElementById('chart-type-select');
+  const plotButton = document.getElementById('plot-btn');
+  let chart = null;
+
+  // אתחול קטגוריות
+  function initCategories() {
+    Object.keys(data).forEach(cat => {
+      const option = document.createElement('option');
+      option.value = cat;
+      option.textContent = cat;
+      categorySelect.appendChild(option);
+    });
+    updateSubcategories();
+  }
+
+  // עדכון תת‑קטגוריות
+  function updateSubcategories() {
+    subcategoriesContainer.innerHTML = '';
+    const selectedCat = categorySelect.value;
+    if (!selectedCat) return;
+    const subcats = Object.keys(data[selectedCat]);
+    subcats.forEach(sub => {
+      const label = document.createElement('label');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.value = sub;
+      label.appendChild(checkbox);
+      label.appendChild(document.createTextNode(sub));
+      subcategoriesContainer.appendChild(label);
+    });
+  }
+
+  categorySelect.addEventListener('change', updateSubcategories);
+
+  // המרת ערכים ממחרוזת למספר
+  function parseValue(val) {
+    if (val === null || val === undefined || val === '') return null;
+    const s = String(val).trim();
+    if (s === '-' || s === '—') return null;
+    let multiplier = 1;
+    let numStr = s;
+    if (s.endsWith('B')) {
+      multiplier = 1e9;
+      numStr = s.slice(0, -1);
+    } else if (s.endsWith('M')) {
+      multiplier = 1e6;
+      numStr = s.slice(0, -1);
+    } else if (s.endsWith('K') || s.endsWith('k')) {
+      multiplier = 1e3;
+      numStr = s.slice(0, -1);
+    }
+    const num = parseFloat(numStr.replace(/,/g, ''));
+    if (isNaN(num)) return null;
+    return num * multiplier;
+  }
+
+  // ציור הגרף
+  function drawChart() {
+    const selectedCat = categorySelect.value;
+    const checkboxes = subcategoriesContainer.querySelectorAll('input[type="checkbox"]:checked');
+    const chartType = chartTypeSelect.value;
+    if (!selectedCat || checkboxes.length === 0) {
+      alert('נא לבחור קטגוריה ותת‑קטגוריות להצגה.');
+      return;
+    }
+
+    const labels = Object.keys(data[selectedCat][checkboxes[0].value]);
+    const datasets = [];
+    checkboxes.forEach((box, idx) => {
+      const subcat = box.value;
+      const values = data[selectedCat][subcat];
+      const dataPoints = labels.map(year => parseValue(values[year]));
+      datasets.push({
+        label: subcat,
+        data: dataPoints,
+        fill: false,
+        borderColor: `hsl(${(idx * 60) % 360}, 70%, 50%)`,
+        backgroundColor: `hsl(${(idx * 60) % 360}, 70%, 50%)`,
+        pointRadius: 3
+      });
+    });
+
+    const ctx = document.getElementById('dataChart').getContext('2d');
+    if (chart) chart.destroy(); // השמדת גרף קודם
+    chart = new Chart(ctx, {
+      type: chartType,
+      data: {
+        labels: labels,
+        datasets: datasets
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          title: {
+            display: true,
+            text: 'IBKR – הצגת נתונים דינמית'
+          },
+          legend: {
+            display: true,
+            position: 'top'
+          }
+        },
+        scales: {
+          x: {
+            title: {
+              display: true,
+              text: 'שנה'
+            }
+          },
+          y: {
+            title: {
+              display: true,
+              text: 'ערך מספרי'
+            },
+            ticks: {
+              callback: function(value) {
+                return value.toLocaleString();
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  plotButton.addEventListener('click', drawChart);
+
+  // הפעלה ראשונית
+  initCategories();
+</script>
+</body>
+</html>
