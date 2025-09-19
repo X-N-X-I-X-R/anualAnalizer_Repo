@@ -1,135 +1,221 @@
-<!-- Chart.js from CDN -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script>
-  // ===== קריאת JSON בצורה ידידותית ל-GitHub Pages =====
-  // שים לב: אין סלאש מוביל. הנתיב יחסי למסמך הנוכחי, ולכן יעבוד גם תחת /<repo>/.
-  const JSON_FILE = 'data/ibkr_data.json';
+<!doctype html>
+<html lang="he" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Annual Analyzer • IBKR</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 0; background: #0b0e13; color: #e7ecf3; }
+      header { padding: 20px; background: #111827; border-bottom: 1px solid #1f2937; }
+      main { max-width: 1100px; margin: 0 auto; padding: 20px; }
+      .grid { display: grid; gap: 16px; grid-template-columns: 1fr; }
+      @media (min-width: 900px) { .grid { grid-template-columns: 320px 1fr; } }
+      .panel { background:#0f172a; border:1px solid #1e293b; border-radius:12px; padding:16px; }
+      label.inline { display:flex; align-items:center; gap:8px; padding:6px 8px; border:1px solid #1f2937; border-radius:8px; margin:4px 0; }
+      select, button { width:100%; padding:10px 12px; border-radius:10px; border:1px solid #334155; background:#0b1220; color:#e7ecf3; }
+      button { cursor:pointer; font-weight:600; background:#1d4ed8; border-color:#1d4ed8; }
+      button:hover { filter:brightness(1.1); }
+      .subcats { max-height: 320px; overflow:auto; display:flex; flex-direction:column; gap:6px; }
+      .chart-wrap { height: 520px; }
+      .muted { color:#9aa6b2; font-size: 12px; }
+    </style>
 
-  // החזקת הדאטה לאחר טעינה
-  let data = null;
+    <!-- Chart.js (defer כדי להבטיח שייטען לפני הקוד שלנו, אך לאחר ה-HTML) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
 
-  // אלמנטים מה־DOM
-  const categorySelect = document.getElementById('category-select');
-  const subcategoriesContainer = document.getElementById('subcategories-container');
-  const chartTypeSelect = document.getElementById('chart-type-select');
-  const plotButton = document.getElementById('plot-btn');
-  let chart = null;
+    <!-- האפליקציה שלנו (defer כדי למנוע addEventListener על null) -->
+    <script defer>
+      // ===== קונפיג בסיסי =====
+      const JSON_FILE = 'data/ibkr_data.json'; // נתיב יחסי מתאים ל-Repo Pages
 
-  // טעינת JSON (עם ביטול קאש בזמן פיתוח)
-  async function loadData() {
-    // בזמן פיתוח אפשר להוסיף ?v=Date.now() כדי לעקוף קאש. בפרודק्शन אפשר להסיר.
-    const url = `${JSON_FILE}?v=${Date.now()}`;
-    const res = await fetch(url, { cache: 'no-store' });
-    if (!res.ok) {
-      throw new Error(`Failed to load ${JSON_FILE}: HTTP ${res.status}`);
-    }
-    return await res.json();
-  }
+      // מצב/משתנים גלובליים
+      let data = null;
+      let chart = null;
 
-  // אתחול קטגוריות לאחר טעינה
-  function initCategories() {
-    categorySelect.innerHTML = '';
-    Object.keys(data).forEach(cat => {
-      const option = document.createElement('option');
-      option.value = cat;
-      option.textContent = cat;
-      categorySelect.appendChild(option);
-    });
-    updateSubcategories();
-  }
-
-  // עדכון תת-קטגוריות
-  function updateSubcategories() {
-    subcategoriesContainer.innerHTML = '';
-    const selectedCat = categorySelect.value;
-    if (!selectedCat) return;
-    const subcats = Object.keys(data[selectedCat]);
-    subcats.forEach(sub => {
-      const label = document.createElement('label');
-      const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox';
-      checkbox.value = sub;
-      label.appendChild(checkbox);
-      label.appendChild(document.createTextNode(sub));
-      subcategoriesContainer.appendChild(label);
-    });
-  }
-  categorySelect.addEventListener('change', updateSubcategories);
-
-  // המרת ערכים ממחרוזת למספר
-  function parseValue(val) {
-    if (val === null || val === undefined || val === '') return null;
-    const s = String(val).trim();
-    if (s === '-' || s === '—') return null;
-    let multiplier = 1;
-    let numStr = s;
-    if (s.endsWith('B')) { multiplier = 1e9;  numStr = s.slice(0, -1); }
-    else if (s.endsWith('M')) { multiplier = 1e6; numStr = s.slice(0, -1); }
-    else if (s.endsWith('K') || s.endsWith('k')) { multiplier = 1e3; numStr = s.slice(0, -1); }
-    const num = parseFloat(numStr.replace(/,/g, ''));
-    if (isNaN(num)) return null;
-    return num * multiplier;
-  }
-
-  // ציור הגרף
-  function drawChart() {
-    const selectedCat = categorySelect.value;
-    const checkboxes = subcategoriesContainer.querySelectorAll('input[type="checkbox"]:checked');
-    const chartType = chartTypeSelect.value;
-    if (!selectedCat || checkboxes.length === 0) {
-      alert('נא לבחור קטגוריה ותת-קטגוריות להצגה.');
-      return;
-    }
-
-    const labels = Object.keys(data[selectedCat][checkboxes[0].value]);
-    const datasets = [];
-    checkboxes.forEach((box, idx) => {
-      const subcat = box.value;
-      const values = data[selectedCat][subcat];
-      const dataPoints = labels.map(year => parseValue(values[year]));
-      datasets.push({
-        label: subcat,
-        data: dataPoints,
-        fill: false,
-        borderColor: `hsl(${(idx * 60) % 360}, 70%, 50%)`,
-        backgroundColor: `hsl(${(idx * 60) % 360}, 70%, 50%)`,
-        pointRadius: 3
-      });
-    });
-
-    const ctx = document.getElementById('dataChart').getContext('2d');
-    if (chart) chart.destroy();
-    chart = new Chart(ctx, {
-      type: chartType,
-      data: { labels, datasets },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          title: { display: true, text: 'IBKR – הצגת נתונים דינמית' },
-          legend: { display: true, position: 'top' }
-        },
-        scales: {
-          x: { title: { display: true, text: 'שנה' } },
-          y: {
-            title: { display: true, text: 'ערך מספרי' },
-            ticks: { callback: value => value.toLocaleString() }
-          }
-        }
+      // עוזר קטן: המרת ערכים עם סיומות K/M/B למספר
+      function parseValue(val) {
+        if (val === null || val === undefined || val === '') return null;
+        const s = String(val).trim();
+        if (s === '-' || s === '—') return null;
+        let multiplier = 1, numStr = s;
+        if (s.endsWith('B')) { multiplier = 1e9;  numStr = s.slice(0, -1); }
+        else if (s.endsWith('M')) { multiplier = 1e6; numStr = s.slice(0, -1); }
+        else if (s.endsWith('K') || s.endsWith('k')) { multiplier = 1e3; numStr = s.slice(0, -1); }
+        const num = parseFloat(numStr.replace(/,/g, ''));
+        if (isNaN(num)) return null;
+        return num * multiplier;
       }
-    });
-  }
 
-  plotButton.addEventListener('click', drawChart);
+      async function loadData() {
+        const res = await fetch(`${JSON_FILE}?v=${Date.now()}`, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`Failed to load ${JSON_FILE}: HTTP ${res.status}`);
+        return await res.json();
+      }
 
-  // הפעלה ראשונית
-  (async () => {
-    try {
-      data = await loadData();     // ← כאן נטענים הנתונים מה-JSON היחסי
-      initCategories();
-    } catch (e) {
-      console.error(e);
-      alert('שגיאה בטעינת הנתונים. ודא שקובץ data/ibkr_data.json קיים ושהנתיב יחסי (ללא סלאש מוביל).');
-    }
-  })();
-</script>
+      function initCategories(categorySelect, subcategoriesContainer) {
+        categorySelect.innerHTML = '';
+        const cats = data && typeof data === 'object' ? Object.keys(data) : [];
+        cats.forEach(cat => {
+          const opt = document.createElement('option');
+          opt.value = cat;
+          opt.textContent = cat;
+          categorySelect.appendChild(opt);
+        });
+        updateSubcategories(categorySelect, subcategoriesContainer);
+      }
+
+      function updateSubcategories(categorySelect, subcategoriesContainer) {
+        subcategoriesContainer.innerHTML = '';
+        const selectedCat = categorySelect.value;
+        if (!selectedCat || !data[selectedCat]) return;
+        const subcats = Object.keys(data[selectedCat]);
+        subcats.forEach(sub => {
+          const label = document.createElement('label');
+          label.className = 'inline';
+          const checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.value = sub;
+          label.appendChild(checkbox);
+          label.appendChild(document.createTextNode(sub));
+          subcategoriesContainer.appendChild(label);
+        });
+      }
+
+      function drawChart(categorySelect, subcategoriesContainer, chartTypeSelect, canvas) {
+        const selectedCat = categorySelect.value;
+        const chartType = chartTypeSelect.value;
+        const checked = subcategoriesContainer.querySelectorAll('input[type="checkbox"]:checked');
+
+        if (!selectedCat) { alert('נא לבחור קטגוריה.'); return; }
+        if (checked.length === 0) { alert('נא לבחור לפחות תת-קטגוריה אחת.'); return; }
+
+        // בוחרים Labels על בסיס תת-הקטגוריה הראשונה
+        const firstKey = checked[0].value;
+        const firstObj = data[selectedCat][firstKey];
+        let labels = [];
+        if (firstObj && typeof firstObj === 'object' && !Array.isArray(firstObj)) {
+          labels = Object.keys(firstObj);
+        } else if (Array.isArray(firstObj)) {
+          labels = firstObj.map((_, i) => String(i + 1));
+        } else {
+          alert('מבנה ה-JSON שונה מהמצופה עבור התת-קטגוריה הראשונה.');
+          return;
+        }
+
+        const datasets = [];
+        checked.forEach((box, idx) => {
+          const subcat = box.value;
+          const values = data[selectedCat][subcat];
+
+          let series = [];
+          if (values && typeof values === 'object' && !Array.isArray(values)) {
+            // אובייקט שנה→ערך
+            series = labels.map(y => parseValue(values[y]));
+          } else if (Array.isArray(values)) {
+            // מערך פשוט
+            series = values.map(v => parseValue(v));
+          }
+
+          const hue = (idx * 53) % 360; // פיזור צבעים נחמד
+          datasets.push({
+            label: subcat,
+            data: series,
+            fill: false,
+            borderColor: `hsl(${hue}, 70%, 55%)`,
+            backgroundColor: `hsl(${hue}, 70%, 55%)`,
+            pointRadius: 3,
+            tension: 0.2
+          });
+        });
+
+        const ctx = canvas.getContext('2d');
+        if (chart) chart.destroy();
+        chart = new Chart(ctx, {
+          type: chartType,
+          data: { labels, datasets },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              title: { display: true, text: 'IBKR – הצגת נתונים דינמית' },
+              legend: { display: true, position: 'top' }
+            },
+            scales: {
+              x: { title: { display: true, text: 'ציר X (לרוב: שנה)' } },
+              y: {
+                title: { display: true, text: 'ערך מספרי' },
+                ticks: { callback: v => Number(v).toLocaleString() }
+              }
+            }
+          }
+        });
+      }
+
+      // רץ אחרי שה-HTML נטען הודות ל-defer
+      window.addEventListener('DOMContentLoaded', async () => {
+        // לוכדים את האלמנטים *אחרי* שה-DOM קיים → אין addEventListener על null
+        const categorySelect = document.getElementById('category-select');
+        const subcategoriesContainer = document.getElementById('subcategories-container');
+        const chartTypeSelect = document.getElementById('chart-type-select');
+        const plotButton = document.getElementById('plot-btn');
+        const canvas = document.getElementById('dataChart');
+
+        try {
+          data = await loadData();
+          initCategories(categorySelect, subcategoriesContainer);
+        } catch (e) {
+          console.error(e);
+          alert('שגיאה בטעינת הנתונים. ודא שקובץ data/ibkr_data.json קיים ושהנתיב יחסי (ללא סלאש מוביל).');
+          return;
+        }
+
+        categorySelect.addEventListener('change', () => updateSubcategories(categorySelect, subcategoriesContainer));
+        plotButton.addEventListener('click', () => drawChart(categorySelect, subcategoriesContainer, chartTypeSelect, canvas));
+      });
+    </script>
+  </head>
+  <body>
+    <header>
+      <h1>Annual Analyzer • IBKR</h1>
+      <div class="muted">בחר קטגוריה, סמן תתי־קטגוריות, בחר סוג גרף — וצור ויזואליזציה דינמית.</div>
+    </header>
+
+    <main class="grid">
+      <section class="panel">
+        <h2 style="margin-top:0">תצורה</h2>
+
+        <div style="margin-bottom:10px">
+          <label for="category-select" class="muted">קטגוריה</label>
+          <select id="category-select" aria-label="קטגוריה"></select>
+        </div>
+
+        <div style="margin-bottom:10px">
+          <label for="chart-type-select" class="muted">סוג גרף</label>
+          <select id="chart-type-select" aria-label="סוג גרף">
+            <option value="line">קו</option>
+            <option value="bar">עמודות</option>
+            <option value="radar">רֵדָאר</option>
+          </select>
+        </div>
+
+        <div style="margin-bottom:10px">
+          <div class="muted" style="margin-bottom:6px">תתי־קטגוריות</div>
+          <div id="subcategories-container" class="subcats"></div>
+        </div>
+
+        <button id="plot-btn">צייר גרף</button>
+        <p class="muted" style="margin-top:8px">
+          הערה: הנתונים נטענים מתוך <code>data/ibkr_data.json</code> (נתיב יחסי).
+        </p>
+      </section>
+
+      <section class="panel">
+        <h2 style="margin-top:0">גרף</h2>
+        <div class="chart-wrap">
+          <canvas id="dataChart"></canvas>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
+
